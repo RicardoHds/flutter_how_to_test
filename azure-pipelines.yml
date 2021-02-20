@@ -1,0 +1,157 @@
+variables:
+  projectDirectory: './'
+  FlutterChannel: 'stable'
+  FlutterVersion: 'latest'
+
+trigger:
+  branches:
+    include:
+    - master
+    - qa
+    - develop
+    - bugfix/*
+    - feature/*
+    exclude:
+    - release/*
+pr:
+  branches:
+    exclude:
+      - '*'
+
+stages:
+
+- stage: build_app
+  displayName: Build app
+  pool:
+    # vmImage: 'macOS-latest'
+    name: Macs
+  jobs:
+  - job: build_app
+    displayName: Build app
+    steps:
+    - task: FlutterInstall@0
+      displayName: Setup flutter
+      inputs:
+        channel: '$(FlutterChannel)'
+        version: '$(FlutterVersion)'
+    - task: FlutterBuild@0
+      displayName: Build APK
+      inputs:
+        target: 'apk'
+        projectDirectory: '$(projectDirectory)'
+        buildNumber: '1'
+  condition: and(eq(variables['Build.Reason'], 'PullRequest'),  eq(variables['System.PullRequest.TargetBranch'], 'refs/heads/develop'))
+
+- stage: run_test
+  displayName: Run test
+  pool:
+    # vmImage: 'macOS-latest'
+    name: Macs
+  jobs:
+  - job: unit_test_widget_test
+    displayName: Unit test & Widget test
+    steps:
+    - task: FlutterInstall@0
+      displayName: Setup flutter
+      inputs:
+        channel: '$(FlutterChannel)'
+        version: '$(FlutterVersion)'
+    - task: FlutterTest@0
+      displayName: Unit test
+      inputs:
+        projectDirectory: '$(projectDirectory)'
+        testPlainName: 'Unit Test'
+    - task: FlutterTest@0
+      displayName: Widget test
+      inputs:
+        projectDirectory: '$(projectDirectory)'
+        testPlainName: 'Widget Test'
+  condition: and(eq(variables['Build.Reason'], 'PullRequest'),  eq(variables['System.PullRequest.TargetBranch'], 'refs/heads/develop'))
+
+- stage: run_e2e_test
+  displayName: Run e2e test
+  pool:
+    name: Macs
+  jobs:
+  - job: e2e_test
+    displayName: E2E test
+    steps:
+    # - script: sh ./create_android_emulator.sh
+    #   displayName: Start Android emulator
+    - script: flutter drive --target=test_driver/app.dart
+      displayName: E2E test
+  condition: eq(variables['Build.SourceBranch'], 'refs/heads/develop')
+
+- stage: publish_app
+  displayName: Publish app
+  pool:
+    vmImage: 'macOS-latest'
+  jobs:
+  - job: publish_app
+    displayName: Publish app
+    steps:
+    - task: FlutterInstall@0
+      displayName: Setup flutter
+      inputs:
+        channel: '$(FlutterChannel)'
+        version: '$(FlutterVersion)'
+    - task: PowerShell@2
+      displayName: Setup environment
+      inputs:
+        targetType: 'inline'
+        script: |
+          Write-Host "##vso[task.prependpath]$(JAVA_HOME_11_X64)"
+          Write-Host "##vso[task.setvariable variable=JAVA_HOME;]$(JAVA_HOME_11_X64)"
+          Write-Host "##vso[task.prependpath]$(FlutterToolPath)"
+          Write-Host "##vso[task.prependpath]$(FlutterToolPath)/cache/dart-sdk/bin"
+    # - task: PowerShell@2
+    #   displayName: Setup variables (beta)
+    #   condition: startsWith(variables['Build.SourceBranch'], 'refs/heads/')
+    #   inputs:
+    #     targetType: 'inline'
+    #     script: |
+    #       $buildName = "$(Build.SourceVersion)".SubString(0,7)
+    #       $distributionGroup = "<APP_CENTER_BETA_DISTRIBUTION_GROUP_ID>"
+    #       Write-Host "##vso[task.setvariable variable=BuildName;]$buildName"
+    #       Write-Host "##vso[task.setvariable variable=DistributionGroup;]$distributionGroup"
+    # - task: PowerShell@2
+    #   displayName: Setup variables (public)
+    #   condition: startsWith(variables['Build.SourceBranch'], 'refs/tags/')
+    #   inputs:
+    #     targetType: 'inline'
+    #     script: |
+    #       $buildName = "$(Build.SourceBranch)".SubString(11)
+    #       $distributionGroup = "<APP_CENTER_PUBLIC_DISTRIBUTION_GROUP_ID>"
+    #       Write-Host "##vso[task.setvariable variable=BuildName;]$buildName"
+    #       Write-Host "##vso[task.setvariable variable=DistributionGroup;]$distributionGroup
+    # - task: CmdLine@2
+    #   displayName: Flutter doctor
+    #   inputs:
+    #     script: 'flutter doctor'
+    - task: FlutterBuild@0
+      displayName: Build android
+      inputs:
+        target: 'apk'
+        projectDirectory: '$(projectDirectory)'
+        buildNumber: '1'
+    # - task: FlutterBuild@0
+    #   displayName: Build iOS
+    #   inputs:
+    #     target: 'ios'
+    #     projectDirectory: '$(projectDirectory)'
+    #     buildNumber: '1'
+    - task: CmdLine@2
+      displayName: Flutter channel master
+      inputs:
+        script: 'flutter channel master'
+    - task: CmdLine@2
+      displayName: Flutter enable web
+      inputs:
+        script: 'flutter config --enable-web'
+    - task: FlutterBuild@0
+      displayName: Build web
+      inputs:
+        target: 'web'
+        projectDirectory: '$(projectDirectory)'
+        buildNumber: '1'
+  condition: eq(variables['Build.SourceBranch'], 'refs/heads/develop')
